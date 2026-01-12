@@ -1,0 +1,152 @@
+{
+    /* *********** vscode *********** */
+    // only works in ~/AppData/Roaming/Code/User/settings.json
+    "security.workspace.trust.enabled": false,
+    // general
+    // "breadcrumbs.enabled": false,
+    "debug.inlineValues": "off",  // truly awful otherwise
+    "debug.onTaskErrors": "abort",
+    "editor.wordWrap": "off",
+    "editor.unusualLineTerminators": "off",  // reading a PDF gives paragraph separators
+    "extensions.ignoreRecommendations": true,
+    "terminal.integrated.enableMultiLinePasteWarning": "never",
+    "terminal.integrated.stickyScroll.enabled": false,
+    "window.zoomLevel": 1,
+    "workbench.editor.empty.hint": "hidden",
+    // AI / copilot
+    "chat.disableAIFeatures": true,
+    "chat.commandCenter.enabled": false,
+    "chat.agent.enabled": false,
+    // file explorer
+    "explorer.confirmDragAndDrop": false,
+    "search.exclude": {
+        "**/*py*cache*": true,  // covers ./.pytest_cache and __pycache__
+        "**/*.venv*": true,
+    },
+    "files.eol": "\n",  // LF
+    "files.exclude": {
+        "**/*py*cache*": true,  // covers ./.pytest_cache and __pycache__
+        "**/*.venv*": true,
+        // renpy
+        "**/*.rpyc": true,
+        "**/*.rpa": true,
+        "**/*.rpymc": true,
+        "**/cache/": true,
+        // LaTeX
+        "**/*.aux": true,
+        "**/*.bbl": true,
+        "**/*.blg": true,
+        "**/*.out": true,
+    },
+    /* *********** extensions *********** */
+    // trailing-spaces
+    "trailing-spaces.trimOnSave": true,
+    // intellisense
+    "terminal.integrated.suggest.enabled": false,
+    // python
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python-envs.pythonProjects": [],
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.supportDocstringTemplate": false,
+    "python.createEnvironment.trigger": "off",
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\scripts\\python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.useEnvironmentsExtension": false,
+    "[python]": {
+        "editor.defaultFormatter": "eeyore.yapf",
+        "editor.formatOnSave": true,
+        "editor.formatOnSaveMode": "file",
+        "editor.formatOnType": false
+    },
+    // // stubgen "{workspaceFolder}/src" -o "dist/typing"  // generates .pyi files
+    // "python.analysis.stubPath": "${workspaceFolder}\\dist\\typing",
+    // "python.analysis.extraPaths": ["${workspaceFolder}\\src", "${workspaceFolder}\\..\\chriscarl-python\\src"],  // TODO: undo once i packegize
+    // "python.REPL.sendToNativeREPL": false,
+    // "mypy-type-checker.args": [
+    //     // "--ignore-missing-imports",
+    //     "--follow-imports=silent"
+    // ],
+    // markdown
+    "markdown.preview.fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif",  // consolas
+    // markdown all-in-one
+    "markdown.extension.list.indentationSize": "inherit",
+    // ipython notebook
+    "notebook.output.scrolling": true,
+    "notebook.output.wordWrap": false,
+    // jupyter
+    "jupyter.widgetScriptSources": [
+        "jsdelivr.com",
+        "unpkg.com"
+    ],
+    // C/C++
+    "files.associations": {
+        "stdio.h": "c",
+        "errno.h": "c",
+        "typeinfo.h": "c",
+        "signal.h": "c",
+        "array": "cpp",
+        "atomic": "cpp",
+        "bit": "cpp",
+        "cctype": "cpp",
+        "clocale": "cpp",
+        "cmath": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "cstddef": "cpp",
+        "cstdint": "cpp",
+        "cstdio": "cpp",
+        "cstdlib": "cpp",
+        "cwchar": "cpp",
+        "cwctype": "cpp",
+        "deque": "cpp",
+        "string": "cpp",
+        "unordered_map": "cpp",
+        "vector": "cpp",
+        "exception": "cpp",
+        "algorithm": "cpp",
+        "functional": "cpp",
+        "iterator": "cpp",
+        "memory": "cpp",
+        "memory_resource": "cpp",
+        "numeric": "cpp",
+        "optional": "cpp",
+        "random": "cpp",
+        "string_view": "cpp",
+        "system_error": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "initializer_list": "cpp",
+        "iosfwd": "cpp",
+        "iostream": "cpp",
+        "istream": "cpp",
+        "limits": "cpp",
+        "new": "cpp",
+        "numbers": "cpp",
+        "ostream": "cpp",
+        "stdexcept": "cpp",
+        "streambuf": "cpp",
+        "typeinfo": "cpp",
+        "list": "cpp",
+        "sstream": "cpp",
+        "string.h": "c",
+        "cstdarg": "cpp",
+        "fstream": "cpp",
+        "bitset": "cpp",
+        "ctime": "cpp",
+        "regex": "cpp",
+        "chrono": "cpp",
+        "charconv": "cpp",
+        "ratio": "cpp",
+        "format": "cpp",
+        "iomanip": "cpp",
+        "span": "cpp",
+        "variant": "cpp",
+        "getopt.h": "c",
+        "codecvt": "cpp",
+        "set": "cpp",
+        "_mingw_off_t.h": "c",
+        "pthread.h": "c",
+        "pthread_signal.h": "c"
+    },
+}
