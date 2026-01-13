@@ -6,9 +6,10 @@ Email:          chrisbcarl@outlook.com
 Date:           2026-01-12
 Description:
 
-tools.house is a tool which... TODO: lorem ipsum
+tools.house is a tool which you can use to deal with housing searches a bit better.
 
 Updates:
+    2026-01-13 06:22  - tools.house - added zillow, XPATH has been a revolution, Keys.ENTER the same way
     2026-01-13 21:07  - tools.house - added the browse mode which has been really enjoyable
     2026-01-12 01:27  - tools.house - it works!
     2026-01-11 17:06  - tools.house - initial commit
@@ -37,6 +38,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, StaleElementReferenceException
 import undetected_chromedriver as uc
 
 # project imports
@@ -76,8 +78,9 @@ def mortgage_monthly(P, apr, down=0.2, years=30, as_float=False):
     n = years * 12
     r = apr / 12
     P = P - P * down
-    monthly = (P * r * (1+r)**n) / ((1+r)**n - 1)
+    monthly = (P * r * (1 + r)**n) / ((1 + r)**n - 1)
     return monthly if as_float else round(monthly)
+
 
 @dataclass
 class Property():
@@ -119,29 +122,50 @@ class Property():
         return f'Property({self.address!r})'
 
     @staticmethod
-    def parse_realtor_com(text):
-        # type: (str) -> Property
+    def parse_text(text, hostname):
+        # type: (str, str) -> Property
         kwargs = {}
 
-        regexes = [
-            ('address', r'\n\s*(.+, .+, [A-Z]{2} \d{5})', re.MULTILINE),
-            ('property_type', r'Property type\n(.+)\n', re.MULTILINE),
-            ('price', r'\n\s*\$([\d,]{5,})', re.MULTILINE),
-            ('bed', r'([\d]+)\n\s*bed', re.MULTILINE),
-            ('bath', r'([\d]+)\n\s*bath', re.MULTILINE),
-            ('hoa', r'HOA fees\n\$?([\d\.,]{3,})', re.MULTILINE),
-            ('land_lease', r'(?:land lease|rent)[^\d]+\$?([\d\., ]{3,})[^\d]', re.IGNORECASE | re.MULTILINE),
-            ('area', r'([\d\.,]{3,}) (square foot lot|acre lot|square feet)', re.MULTILINE),
-            ('area_unit', r'[\d\.,]{3,} (square foot lot|acre lot|square feet)', re.MULTILINE),
-            ('year', r'Year built\n(.+)', re.MULTILINE),
-            ('commute', r'(\d+ min)\nto', re.MULTILINE),
-            ('listing_age', r'On Realtor.com\n(\d+) days', re.MULTILINE),
-            ('listing_agent', r'Listed by (.+)', 0),
-            ('listing_agent_brokerage', r'Brokered by (.+)', 0),
-        ]
+        if 'realtor.com' in hostname:
+            regexes = [
+                ('address', r'\n\s*(.+, .+, [A-Z]{2} \d{5})', re.MULTILINE),
+                ('property_type', r'Property type\n(.+)\n', re.MULTILINE),
+                ('price', r'\n\s*\$([\d,]{5,})', re.MULTILINE),
+                ('bed', r'([\d]+)\n\s*bed', re.MULTILINE),
+                ('bath', r'([\d]+)\n\s*bath', re.MULTILINE),
+                ('hoa', r'HOA fees\n\$?([\d\.,]{3,})', re.MULTILINE),
+                ('land_lease', r'(?:land lease|rent)[^\d]+\$?([\d\., ]{3,})[^\d]', re.IGNORECASE | re.MULTILINE),
+                ('area', r'([\d\.,]{3,}) (square foot lot|acre lot|square feet)', re.MULTILINE),
+                ('area_unit', r'[\d\.,]{3,} (square foot lot|acre lot|square feet)', re.MULTILINE),
+                ('year', r'Year built\n(.+)', re.MULTILINE),
+                ('commute', r'(\d+ min)\nto', re.MULTILINE),
+                ('listing_age', r'On Realtor.com\n(\d+) days', re.MULTILINE),
+                ('listing_agent', r'Listed by (.+)', 0),
+                ('listing_agent_brokerage', r'Brokered by (.+)', 0),
+            ]
+        elif 'zillow.com' in hostname:
+            regexes = [
+                ('address', r'\n\s*(.+, .+, [A-Z]{2} \d{5})', re.MULTILINE),
+                ('property_type', r'Home type\:\s*(.+)\n', re.MULTILINE),
+                ('price', r'\n\s*\$([\d,]{5,})', re.MULTILINE),
+                ('bed', r'([\d]+)\s*bed', re.MULTILINE),
+                ('bath', r'([\d]+)\s*bath', re.MULTILINE),
+                ('hoa', r'\$?([\d\.,]{3,})\/mo HOA', 0),
+                ('land_lease', r'(?:lease amount|rent)\:+s*\$?([\d\., ]{3,})', re.IGNORECASE),
+                ('area', r'area\:\s*([\d\.,]{3,})', re.MULTILINE),
+                ('area_unit', r'area\:\s*([\d\.,]{3,}) (sqft lot|acre lot|sqft)', re.MULTILINE),
+                ('year', r'Year built\:\s*(.+)', re.MULTILINE),
+                ('commute', r'(\d+ min)\nto', re.MULTILINE),
+                ('listing_age', r'(\d+) days on Zillow', re.MULTILINE),
+                ('listing_agent', r'Listed by:\n([^\d]+)\s+[\d \-]+,\n(?:.+)\s+[\d\-\(\)]{9,}', re.MULTILINE),
+                ('listing_agent_brokerage', r'Listed by:\n(?:[^\d]+)\s+[\d \-]+,\n(.+)\s+[\d\-\(\)]{9,}', re.MULTILINE),
+            ]
+        else:
+            raise NotImplementedError(f'{hostname} not yet implemented!')
+
         for tpl in regexes:
+            key, regex, flags = tpl
             try:
-                key, regex, flags = tpl
                 default = getattr(DEFAULT_PROPERTY, key)
                 KeyType = type(default)
                 mo = re.search(regex, text, flags=flags)
@@ -173,8 +197,12 @@ class Property():
         self.total = self.monthly_30 + self.hoa + self.land_lease
         self.per_person = self.total / self.bed
 
+    def to_dict(self):
+        return asdict(self)
+
 
 URL_MORTGAGE_RATES = 'https://datawrapper.dwcdn.net/cHKhW/56/dataset.csv'
+
 
 def download_mortgage_rates(dirpath=TEMP_DIRPATH):
     # type: (str) -> Tuple[float, float, float]
@@ -209,6 +237,10 @@ def download_mortgage_rates(dirpath=TEMP_DIRPATH):
             mortgage_rate_15 = float(data['Interest Rate'])
 
     return mortgage_rate_30, mortgage_rate_20, mortgage_rate_15
+
+
+DEFAULT_PROPERTY = Property()
+
 
 def realtor_com_populate_commute(driver, wait, url, commute_address):
     # type: (WebDriver, WebDriverWait, str, str) -> bool
@@ -258,6 +290,7 @@ def realtor_com_populate_commute(driver, wait, url, commute_address):
 
     return True
 
+
 def realtor_com_to_text(driver, wait, url, sleep_for=3):
     # type: (WebDriver, WebDriverWait, str, int|float) -> str
     # data = {}
@@ -279,17 +312,17 @@ def realtor_com_to_text(driver, wait, url, sleep_for=3):
 
     details = driver.find_element(By.ID, 'Property details')
     details_text = str(details.text)
-    wanted = ['for-sale', 'ldp-agent-overview', 'ldp-list-price', 'ldp-home-facts', 'ldp-highlighted-facts', 'ldp-commute-time']
-    for div in driver.find_elements(By.TAG_NAME, 'div'):
-        try:
-            attrib = div.get_attribute('data-testid')
-            if not attrib:
-                continue
-            elif attrib in wanted:
-                # data[attrib] = div.text
-                text.append(div.text)
-        except Exception:
-            pass
+    data_testids = [
+        'for-sale',
+        'ldp-agent-overview',
+        'ldp-list-price',
+        'ldp-home-facts',
+        'ldp-highlighted-facts',
+        'ldp-commute-time',
+    ]
+    for data_testid in data_testids:
+        div = driver.find_element(By.XPATH, f'//*[@data-testid="{data_testid}"]')
+        text.append(div.text)
 
     # data['details'] = details_text
     text.append(details_text)
@@ -298,7 +331,74 @@ def realtor_com_to_text(driver, wait, url, sleep_for=3):
     return '\n'.join(text)
 
 
-DEFAULT_PROPERTY = Property()
+def zillow_com_to_text(driver, wait, url, sleep_for=3, captcha_timeout=25):
+    # type: (WebDriver, WebDriverWait, str, int|float, int|float) -> str
+    text = []
+
+    LOGGER.debug('%s - expanding property details', url)
+    if driver.current_url != url:
+        driver.get(url)
+
+    wait.until(EC.presence_of_element_located((By.XPATH, f'//section[@data-testid="contact-form"]')))
+    div = wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'layout-static-column-container')))
+
+    try:
+        if driver.find_element(By.ID, 'px-captcha-modal'):
+            LOGGER.warning('must solve captcha!')
+            now = time.time()
+            while driver.find_element(By.ID, 'px-captcha-modal'):
+                LOGGER.warning('must solve captcha!')
+                time.sleep(1)
+                if time.time() - now > captcha_timeout:
+                    raise RuntimeError('failed captcha timeout!')
+
+            div = driver.find_element(By.CLASS_NAME, 'layout-static-column-container')
+    except NoSuchElementException:
+        pass
+
+    input = driver.find_element(By.XPATH, f'//section[@data-testid="contact-form"]//input')
+    for _ in range(5):
+        input.send_keys(Keys.PAGE_DOWN)
+        time.sleep(0.2)
+    for _ in range(5):
+        input.send_keys(Keys.PAGE_UP)
+        time.sleep(0.2)
+
+    buttons = [
+        'description',
+        'facts-and-features-wrapper-footer',
+    ]
+    while buttons:
+        section = buttons.pop(0)
+        div = driver.find_element(By.XPATH, f'//div[@data-testid="{section}"]')
+        button = div.find_element(By.TAG_NAME, 'button')
+        button.send_keys(Keys.ENTER)  # NOTE: instead of .click()
+        time.sleep(0.5)
+
+    div = driver.find_element(By.CLASS_NAME, 'layout-static-column-container')
+    dts = div.find_elements(By.TAG_NAME, 'dt')
+    dt_text = ' '.join([str(dt.text) for dt in dts])
+    text.append(dt_text)
+
+    data_testids = [
+        'home-details-chip-container',
+        'description',
+        'facts-and-features-module',
+        'seller-attribution',
+    ]
+    aria_labels = [
+        'At a glance facts',
+    ]
+    for data_testid in data_testids:
+        div = driver.find_element(By.XPATH, f'//div[@data-testid="{data_testid}"]')
+        text.append(div.text)
+    for aria_label in aria_labels:
+        div = driver.find_element(By.XPATH, f'//div[@aria-label="{aria_label}"]')
+        text.append(div.text)
+
+    time.sleep(random.randint(0, int(1000 * sleep_for)) / 1000)
+
+    return '\n'.join(text)
 
 
 @dataclass
@@ -383,7 +483,8 @@ def url_link(input_filepath, output_dirpath, commute=''):
 
         parsed = urllib.parse.urlparse(url)
         cache_filename = f'{urls}'
-        if 'realtor.com' in str(parsed.hostname):
+        hostname = str(parsed.hostname) if parsed.hostname else ''
+        if hostname:
             cache_filename = parsed.path.split('/')[-1]
         cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
         if is_file(cached_filepath):
@@ -391,9 +492,15 @@ def url_link(input_filepath, output_dirpath, commute=''):
             text = read_text_file(cached_filepath)
         else:
             LOGGER.info('analyzing %d - %s from browser', urls, url)
+            if 'realtor.com' in hostname:
+                text = realtor_com_to_text(driver, wait, url)
+            elif 'zillow.com' in hostname:
+                text = zillow_com_to_text(driver, wait, url)
+            else:
+                raise NotImplementedError(f'not implemented for {hostname!r}!')
             write_text_file(cached_filepath, f'{url}\n{text}')
 
-        prop = Property.parse_realtor_com(text)
+        prop = Property.parse_text(text, hostname=hostname)
         prop.link = url
         prop.calculate(mortgage_rate_15, mortgage_rate_20, mortgage_rate_30)
         properties.append(prop)
@@ -445,43 +552,53 @@ def browse(output_dirpath, commute=''):
     properties = []
     urls = 0
     commute_dealt_with = False
-    current_url = ''
+    url = ''
     driver_url = get_url(driver)
     try:
         while driver_url is not None:
-            if current_url == driver_url:
+            if url == driver_url:
                 time.sleep(0.2)
                 driver_url = get_url(driver)
                 continue
 
-            current_url = driver_url
+            url = driver_url
 
             if 'realtor.com/realestateandhomes-detail' in driver_url:
                 if commute and not commute_dealt_with:
-                    realtor_com_populate_commute(driver, wait, current_url, commute)
+                    realtor_com_populate_commute(driver, wait, url, commute)
                     commute_dealt_with = True
                 time.sleep(1)
 
                 urls += 1
 
-                parsed = urllib.parse.urlparse(current_url)
+                parsed = urllib.parse.urlparse(url)
                 cache_filename = f'{urls}'
-                if 'realtor.com' in str(parsed.hostname):
+                hostname = str(parsed.hostname) if parsed.hostname else ''
+                if hostname:
                     cache_filename = parsed.path.split('/')[-1]
                 cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
                 if is_file(cached_filepath):
-                    LOGGER.info('analyzing %d - %s from file', urls, current_url)
+                    LOGGER.info('analyzing %d - %s from file', urls, url)
                     text = read_text_file(cached_filepath)
                 else:
-                    LOGGER.info('analyzing %d - %s from browser', urls, current_url)
-                    text = realtor_com_to_text(driver, wait, current_url)
-                    write_text_file(cached_filepath, f'{urls}\n{text}')
+                    LOGGER.info('analyzing %d - %s from browser', urls, url)
+                    if 'realtor.com' in hostname:
+                        text = realtor_com_to_text(driver, wait, url)
+                    elif 'zillow.com' in hostname:
+                        text = zillow_com_to_text(driver, wait, url)
+                    else:
+                        raise NotImplementedError(f'not implemented for {hostname!r}!')
+                    write_text_file(cached_filepath, f'{url}\n{text}')
 
-                prop = Property.parse_realtor_com(text)
-                prop.link = current_url
+                prop = Property.parse_text(text, hostname=hostname)
+                prop.link = url
                 prop.calculate(mortgage_rate_15, mortgage_rate_20, mortgage_rate_30)
                 LOGGER.info('discovered property: %s', prop)
                 properties.append(prop)
+            elif 'zillow.com/homedetails' in driver_url:
+                print('plz')
+                globals().update(locals())
+                sys.exit(1)
 
             driver_url = get_url(driver)
     except KeyboardInterrupt:

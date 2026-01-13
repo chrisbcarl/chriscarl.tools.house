@@ -58,3 +58,16 @@ mypy = "^1.19.1"
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__"
+]
+ignore = ["ignoreme"]
+stubPath = "dist/stubs"
+# defineConstant = { DEBUG = true }
+reportAttributeAccessIssue = false  # ._MEIPASS
+
