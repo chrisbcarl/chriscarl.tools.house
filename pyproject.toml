@@ -33,7 +33,7 @@ documentation = "https://readthedocs.org"
 
 
 [tool.poetry.scripts]
-# house = 'chriscarl.tools.house:main'
+house = 'chriscarl.tools.house:main'
 
 
 [tool.poetry.dependencies]

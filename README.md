@@ -5,8 +5,9 @@ In the search for a house, it would be nice to have an open browser and simply b
 ```bash
 poetry install
 
-house files/house-links-2026-01.txt --commute "1 Washington Sq, San Jose, CA, 95112"
+house url-file files/house-links-2026-01.txt --commute "1 Washington Sq, San Jose, CA, 95112"
 
+house browse --commute "1 Washington Sq, San Jose, CA, 95112"
 ```
 
 
@@ -41,6 +42,13 @@ https://www.pew.org/en/research-and-analysis/articles/2025/06/04/millions-of-hom
 # Acknowledgements
 - [Forbes](https://www.forbes.com/advisor/mortgages/current-20-year-mortgages-rates/) for collating the mortgage rates and updating them daily
 - [Realtor.com Mortgage Calculator](https://www.realtor.com/mortgage/tools/mortgage-calculator) to verify values
+- other possible links
+    - https://www.scrapingbee.com/blog/web-scraping-realtor/
+    - https://webscrapingsite.com/blog/how-to-scrape-data-from-realtor-com-a-comprehensive-guide/
+    - https://webscraping.ai/faq/selenium-webdriver/how-do-i-manage-browser-profiles-and-preferences-in-selenium-webdriver
+    - consider attaching to an existing session
+        - https://stackoverflow.com/questions/8344776/can-selenium-interact-with-an-existing-browser-session
+        - header interception - https://www.zenrows.com/blog/selenium-headers#set-up-custom-headers
 
 
 # Dead Code

@@ -6,10 +6,12 @@ Email:          chrisbcarl@outlook.com
 Date:           2026-01-12
 Description:
 
-tools.house2 is a tool which... TODO: lorem ipsum
+tools.house is a tool which... TODO: lorem ipsum
 
 Updates:
-    2026-01-12 - tools.house2 - initial commit
+    2026-01-13 21:07  - tools.house - added the browse mode which has been really enjoyable
+    2026-01-12 01:27  - tools.house - it works!
+    2026-01-11 17:06  - tools.house - initial commit
 '''
 
 # stdlib imports
@@ -17,6 +19,8 @@ from __future__ import absolute_import, print_function, division, with_statement
 import os
 import sys
 import logging
+import urllib.parse
+import datetime
 import random
 import time
 import json
@@ -60,7 +64,7 @@ DEFAULT_OUTPUT_DIRPATH = abspath(TEMP_DIRPATH, 'tools.house')
 DEFAULT_LOG_FILEPATH = abspath(TEMP_DIRPATH, 'tools.house.log')
 
 # tool constants
-
+NOW = datetime.datetime.now().strftime('%Y-%m-%d')
 
 
 def mortgage_monthly(P, apr, down=0.2, years=30, as_float=False):
@@ -105,6 +109,14 @@ class Property():
     # @property
     # def address(self):
     #     return f'{self.street}, {self.city}, {self.state} {self.zip}'
+
+    def __repr__(self):
+        # type: () -> str
+        return f'Property({self.address!r})[{self.bed}bed/{self.bath}bath @ ${self.price:0.2f}]'
+
+    def __str__(self):
+        # type: () -> str
+        return f'Property({self.address!r})'
 
     @staticmethod
     def parse_realtor_com(text):
@@ -201,8 +213,9 @@ def download_mortgage_rates(dirpath=TEMP_DIRPATH):
 def realtor_com_populate_commute(driver, wait, url, commute_address):
     # type: (WebDriver, WebDriverWait, str, str) -> bool
     LOGGER.debug('looking for the commute button')
+    if driver.current_url != url:
+        driver.get(url)
 
-    driver.get(url)
     wait.until(EC.presence_of_element_located((By.ID, 'Property details')))
     the_button = None
     for button in driver.find_elements(By.TAG_NAME, 'button'):
@@ -250,13 +263,22 @@ def realtor_com_to_text(driver, wait, url, sleep_for=3):
     # data = {}
     text = []
 
-    driver.get(url)
+    LOGGER.debug('%s - expanding property details', url)
+    if driver.current_url != url:
+        driver.get(url)
+
     ele = wait.until(EC.presence_of_element_located((By.ID, 'Property details')))
     for button in ele.find_elements(By.TAG_NAME, 'button'):
         if isinstance(button.text, str) and 'show more' in button.text.lower():
             button.click()
+    # time.sleep(1)
+    # ele = driver.find_element(By.ID, 'Property details')
+    # for button in ele.find_elements(By.TAG_NAME, 'button'):
+    #     if isinstance(button.text, str) and 'show more' in button.text.lower():
+    #         button.click()
 
     details = driver.find_element(By.ID, 'Property details')
+    details_text = str(details.text)
     wanted = ['for-sale', 'ldp-agent-overview', 'ldp-list-price', 'ldp-home-facts', 'ldp-highlighted-facts', 'ldp-commute-time']
     for div in driver.find_elements(By.TAG_NAME, 'div'):
         try:
@@ -269,8 +291,8 @@ def realtor_com_to_text(driver, wait, url, sleep_for=3):
         except Exception:
             pass
 
-    # data['details'] = details.text
-    text.append(details.text)
+    # data['details'] = details_text
+    text.append(details_text)
     time.sleep(random.randint(0, int(1000 * sleep_for)) / 1000)
 
     return '\n'.join(text)
@@ -284,7 +306,8 @@ class Arguments:
     '''
     Document this class with any specifics for the process function.
     '''
-    input_filepath: str
+    mode: str = ''
+    input_filepath: str = ''
     commute: str = ''
     output_dirpath: str = DEFAULT_OUTPUT_DIRPATH
     debug: bool = False
@@ -292,18 +315,29 @@ class Arguments:
     log_filepath: str = DEFAULT_LOG_FILEPATH
 
     @staticmethod
+    def add_common_arguments(parser):
+        parser.add_argument('--commute', '-c', type=str, help='an address youd like to calculate a commute from')
+        parser.add_argument('--output-dirpath', '-o', type=str, default=DEFAULT_OUTPUT_DIRPATH, help='where do you want to save the output json and downloaded descriptions')
+
+        parser.add_argument('--debug', action='store_true', help='chose to print debug info')
+        parser.add_argument('--log-level', type=str, default='INFO', choices=NAME_TO_LEVEL, help='log level?')
+        parser.add_argument('--log-filepath', type=str, default=DEFAULT_LOG_FILEPATH, help='log filepath?')
+
+    @staticmethod
     def argparser():
         # type: () -> ArgumentParser
         parser = ArgumentParser(prog=SCRIPT_NAME, description=__doc__, formatter_class=ArgparseNiceFormat)
-        app = parser.add_argument_group('app')
-        app.add_argument('input-filepath', type=str, help='filepath with urls to injest')
-        app.add_argument('--commute', '-c', type=str, help='an address youd like to calculate a commute from')
-        app.add_argument('--output-dirpath', '-o', type=str, default=DEFAULT_OUTPUT_DIRPATH, help='where do you want to save the output json and downloaded descriptions')
+        modes = parser.add_subparsers(title='mode', description='pick one of the modes')
 
-        misc = parser.add_argument_group('misc')
-        misc.add_argument('--debug', action='store_true', help='chose to print debug info')
-        misc.add_argument('--log-level', type=str, default='INFO', choices=NAME_TO_LEVEL, help='log level?')
-        misc.add_argument('--log-filepath', type=str, default=DEFAULT_LOG_FILEPATH, help='log filepath?')
+        url_file = modes.add_parser('url-file', help='one-shot through a list of urls granted via file')
+        Arguments.add_common_arguments(url_file)
+        url_file.set_defaults(mode='url-file')
+        url_file.add_argument('input_filepath', type=str, help='filepath with urls to injest')
+
+        browse = modes.add_parser('browse', help='open up a driver and browse at our liesure until closed')
+        Arguments.add_common_arguments(browse)
+        browse.set_defaults(mode='browse')
+
         return parser
 
     def process(self):
@@ -322,41 +356,41 @@ class Arguments:
         return arguments
 
 
-def main():
-    # type: () -> int
-    parser = Arguments.argparser()
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit(1)
-
-    args = Arguments.parse(parser=parser)
-    os.makedirs(args.output_dirpath, exist_ok=True)
-
-    url_text = read_text_file(args.input_filepath)
+def url_link(input_filepath, output_dirpath, commute=''):
+    # type: (str, str, str) -> None
+    url_text = read_text_file(input_filepath)
     urls = [url.strip() for url in url_text.splitlines() if url.strip() and not url.strip().startswith('#')]
-    filename = os.path.splitext(os.path.basename(args.input_filepath))[1]
+    filename = os.path.splitext(os.path.basename(input_filepath))[1]
 
-    # NOTE: use_subprocess=False in interactive mode
+    # NOTE: use_subprocess=False in python interactive mode
     driver = uc.Chrome(headless=False, use_subprocess=True)
     wait = WebDriverWait(driver, 5)
 
+    cache_dirpath = abspath(output_dirpath)
+    os.makedirs(cache_dirpath, exist_ok=True)
+
     LOGGER.info('downloading mortgage rates')
-    mortgage_rate_30, mortgage_rate_20, mortgage_rate_15 = download_mortgage_rates(dirpath=args.output_dirpath)
+    mortgage_rate_30, mortgage_rate_20, mortgage_rate_15 = download_mortgage_rates(dirpath=output_dirpath)
     LOGGER.info('30 Year mortgage rate of %0.2f%%', mortgage_rate_30)
 
-    if args.commute:
-        realtor_com_populate_commute(driver, wait, urls[-1], args.commute)
+    if commute:
+        realtor_com_populate_commute(driver, wait, urls[-1], commute)
 
     LOGGER.info('url processing')
     properties = []
     for u, url in enumerate(urls):
         LOGGER.info('%d / %d - %s', u + 1, len(urls), url)
 
-        cached_filepath = abspath(args.output_dirpath, f'{u}.txt')
+        parsed = urllib.parse.urlparse(url)
+        cache_filename = f'{urls}'
+        if 'realtor.com' in str(parsed.hostname):
+            cache_filename = parsed.path.split('/')[-1]
+        cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
         if is_file(cached_filepath):
+            LOGGER.info('analyzing %d - %s from file', urls, url)
             text = read_text_file(cached_filepath)
         else:
-            text = realtor_com_to_text(driver, wait, url.strip())
+            LOGGER.info('analyzing %d - %s from browser', urls, url)
             write_text_file(cached_filepath, f'{url}\n{text}')
 
         prop = Property.parse_realtor_com(text)
@@ -365,16 +399,129 @@ def main():
         properties.append(prop)
 
     property_dicts = [asdict(prop) for prop in properties]
-    keys = list(asdict(DEFAULT_PROPERTY).keys())
-    output_filepath_csv = abspath(args.output_dirpath, f'{filename}.csv')
-    with open(output_filepath_csv, 'w', encoding='utf-8', newline='') as w:
-        writer = csv.DictWriter(w, fieldnames=keys)
-        writer.writeheader()
-        writer.writerows(property_dicts)
+    LOGGER.info('found %d properties', len(property_dicts))
+    if property_dicts:
+        output_filepath_json = abspath(output_dirpath, f'{filename}.json')
+        if os.path.isfile(output_filepath_json):
+            with open(output_filepath_json, 'r', encoding='utf-8') as r:
+                existing_dicts = json.load(r)
+            property_dicts.extend(existing_dicts)
 
-    output_filepath_json = abspath(args.output_dirpath, f'{filename}.json')
-    with open(output_filepath_json, 'w', encoding='utf-8') as w:
-        json.dump(property_dicts, w, indent=2)
+        keys = list(asdict(DEFAULT_PROPERTY).keys())
+        output_filepath_csv = abspath(output_dirpath, f'{filename}.csv')
+        with open(output_filepath_csv, 'w', encoding='utf-8', newline='') as w:
+            writer = csv.DictWriter(w, fieldnames=keys)
+            writer.writeheader()
+            writer.writerows(property_dicts)
+        LOGGER.info('wrote "%s"', output_filepath_csv)
+
+        with open(output_filepath_json, 'w', encoding='utf-8') as w:
+            json.dump(property_dicts, w, indent=2)
+        LOGGER.info('wrote "%s"', output_filepath_json)
+
+
+def get_url(driver):
+    # type: (WebDriver) -> str|None
+    try:
+        return driver.current_url.strip()
+    except Exception:
+        LOGGER.warning('driver is likely dead')
+        return None
+
+
+def browse(output_dirpath, commute=''):
+    # type: (str, str) -> None
+    # NOTE: use_subprocess=False in python interactive mode
+    driver = uc.Chrome(headless=False, use_subprocess=True)
+    wait = WebDriverWait(driver, 5)
+
+    cache_dirpath = abspath(output_dirpath)
+    os.makedirs(cache_dirpath, exist_ok=True)
+
+    LOGGER.info('downloading mortgage rates')
+    mortgage_rate_30, mortgage_rate_20, mortgage_rate_15 = download_mortgage_rates(dirpath=output_dirpath)
+    LOGGER.info('30 Year mortgage rate of %0.2f%%', mortgage_rate_30)
+
+    properties = []
+    urls = 0
+    commute_dealt_with = False
+    current_url = ''
+    driver_url = get_url(driver)
+    try:
+        while driver_url is not None:
+            if current_url == driver_url:
+                time.sleep(0.2)
+                driver_url = get_url(driver)
+                continue
+
+            current_url = driver_url
+
+            if 'realtor.com/realestateandhomes-detail' in driver_url:
+                if commute and not commute_dealt_with:
+                    realtor_com_populate_commute(driver, wait, current_url, commute)
+                    commute_dealt_with = True
+                time.sleep(1)
+
+                urls += 1
+
+                parsed = urllib.parse.urlparse(current_url)
+                cache_filename = f'{urls}'
+                if 'realtor.com' in str(parsed.hostname):
+                    cache_filename = parsed.path.split('/')[-1]
+                cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
+                if is_file(cached_filepath):
+                    LOGGER.info('analyzing %d - %s from file', urls, current_url)
+                    text = read_text_file(cached_filepath)
+                else:
+                    LOGGER.info('analyzing %d - %s from browser', urls, current_url)
+                    text = realtor_com_to_text(driver, wait, current_url)
+                    write_text_file(cached_filepath, f'{urls}\n{text}')
+
+                prop = Property.parse_realtor_com(text)
+                prop.link = current_url
+                prop.calculate(mortgage_rate_15, mortgage_rate_20, mortgage_rate_30)
+                LOGGER.info('discovered property: %s', prop)
+                properties.append(prop)
+
+            driver_url = get_url(driver)
+    except KeyboardInterrupt:
+        driver.close()
+        LOGGER.warning('ctrl + c detected!')
+
+    property_dicts = [asdict(prop) for prop in properties]
+    LOGGER.info('found %d properties', len(property_dicts))
+    if property_dicts:
+        output_filepath_json = abspath(output_dirpath, f'{NOW}.json')
+        if os.path.isfile(output_filepath_json):
+            with open(output_filepath_json, 'r', encoding='utf-8') as r:
+                existing_dicts = json.load(r)
+            property_dicts.extend(existing_dicts)
+
+        keys = list(asdict(DEFAULT_PROPERTY).keys())
+        output_filepath_csv = abspath(output_dirpath, f'{NOW}.csv')
+        with open(output_filepath_csv, 'w', encoding='utf-8', newline='') as w:
+            writer = csv.DictWriter(w, fieldnames=keys)
+            writer.writeheader()
+            writer.writerows(property_dicts)
+        LOGGER.info('wrote "%s"', output_filepath_csv)
+
+        with open(output_filepath_json, 'w', encoding='utf-8') as w:
+            json.dump(property_dicts, w, indent=2)
+        LOGGER.info('wrote "%s"', output_filepath_json)
+
+
+def main():
+    # type: () -> int
+    parser = Arguments.argparser()
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args = Arguments.parse(parser=parser)
+    if args.mode == 'link-url':
+        url_link(args.input_filepath, args.output_dirpath, commute=args.commute)
+    elif args.mode == 'browse':
+        browse(args.output_dirpath, commute=args.commute)
 
     LOGGER.info('done')
     return 0
