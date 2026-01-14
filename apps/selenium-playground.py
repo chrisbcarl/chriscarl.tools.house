@@ -118,7 +118,7 @@ save_page(driver)
 # to deal with some CloudFlare and captcha'd stuff
 # NOTE: use_subprocess=False in python interactive mode
 driver = uc.Chrome(headless=False, use_subprocess=False)
-wait = WebDriverWait(driver, 5)
+wait = WebDriverWait(driver, 20)
 
 # typical find one element via xpath, real powerful stuff
 inp = wait.until(EC.presence_of_element_located((By.XPATH, '//section[@type="main"]//input')))

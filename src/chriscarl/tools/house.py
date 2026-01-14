@@ -12,7 +12,7 @@ TODO:
     - rentals
 
 Updates:
-    2026-01-14 03:08  - tools.house - added search (at least for realtor.com)!
+    2026-01-14 06:22  - tools.house - added search with realtor/zillow, does not parse url correclty wll have to fix
     2026-01-13 06:22  - tools.house - added zillow, XPATH has been a revolution, Keys.ENTER the same way
     2026-01-13 21:07  - tools.house - added the browse mode which has been really enjoyable
     2026-01-12 01:27  - tools.house - it works!
@@ -363,15 +363,12 @@ def zillow_com_to_text(driver, wait, url, sleep_for=3, captcha_timeout=25):
     except NoSuchElementException:
         pass
 
-    # input = driver.find_element(By.XPATH, f'//section[@data-testid="contact-form"]//input')
-    # input = driver.find_element(By.XPATH, '//input[@id="hidden-reg-details"]')
-    # input = driver.find_element(By.XPATH, '//div[@id="bdp-building-location"]')
-    input = driver.find_element(By.XPATH, '//input[@aria-label="Search" and @role="combobox"]')
+    body = wait.until(EC.presence_of_element_located((By.XPATH, f'//body')))
     for _ in range(5):
-        input.send_keys(Keys.PAGE_DOWN)
+        body.send_keys(Keys.PAGE_DOWN)
         time.sleep(0.2)
     for _ in range(5):
-        input.send_keys(Keys.PAGE_UP)
+        body.send_keys(Keys.PAGE_UP)
         time.sleep(0.2)
 
     buttons = [
@@ -418,7 +415,7 @@ def realtor_com_search_page_visit(driver, wait, url):
         driver.get(url)
     LOGGER.debug('scrapping page %s', url)
     wait.until(EC.presence_of_element_located((By.XPATH, '//div[@data-testid="card-content"]//a')))
-    search = driver.find_element(By.XPATH, '//input[@type="text"]')  # still exists
+    body = driver.find_element(By.XPATH, '//body')  # still exists
     while True:
         try:
             # no matches found
@@ -432,7 +429,7 @@ def realtor_com_search_page_visit(driver, wait, url):
             driver.find_element(By.XPATH, '//div[@aria-label="pagination"]')
             break
         except NoSuchElementException:
-            search.send_keys(Keys.PAGE_DOWN)
+            body.send_keys(Keys.PAGE_DOWN)
             time.sleep(0.1)
 
     urls = []
@@ -496,8 +493,17 @@ def realtor_com_search(
     search_url = f'{"/".join(tokens)}/'
     LOGGER.info('%s', search_url)
     urls = realtor_com_search_page_visit(driver, wait, search_url)  # page 1
+    LOGGER.info('scraped page 1, %d urls discovered so far', len(urls))
 
     # see if htere is a page 2
+    try:
+        # no matches found
+        driver.find_element(By.XPATH, '//p[contains(normalize-space(.), "nd of matching")]')
+        return urls
+    except NoSuchElementException:
+        pass
+
+    # paginator found
     pages = driver.find_element(By.XPATH, '//div[@aria-label="pagination"]')
     max_page_mo = re.search(r'(\d+)\nnext', pages.text, flags=re.MULTILINE | re.IGNORECASE)
     if not max_page_mo:
@@ -513,6 +519,133 @@ def realtor_com_search(
             search_url_page = urljoin(base_url, f'pg-{page}')
             urls.extend(realtor_com_search_page_visit(driver, wait, search_url_page))
             time.sleep(random.randint(0, int(1000 * sleep_for)) / 1000)
+
+    LOGGER.info('found %d urls', len(urls))
+    return urls
+
+
+def zillow_com_search_page_visit(driver, wait):
+    # type: (WebDriver, WebDriverWait) -> List[str]
+
+    # this div IS interactable, others arent..
+    grid = wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="search-page-list-container"]')))
+    for _ in range(10):
+        grid.send_keys(Keys.PAGE_DOWN)
+        time.sleep(0.1)
+
+    urls = []
+    for anchor in driver.find_elements(By.XPATH, '//div[@data-testid="property-card-data"]/a'):
+        href = anchor.get_attribute('href')
+        if not href:
+            continue
+        else:
+            urls.append(href)
+
+    return urls
+
+
+def zillow_com_search(
+    driver,
+    wait,
+    city=None,
+    state=None,
+    zip=None,
+    price_max=None,
+    price_min=None,
+    show_contingent=False,
+    sleep_for=3,
+):
+    # type: (WebDriver, WebDriverWait, Optional[str], Optional[str], Optional[int], Optional[int|float], Optional[int|float], bool, int|float) -> List[str]
+    if not ((city and state) or (zip)):
+        raise ValueError('must provide either city and state OR zip!')
+
+    driver.get('https://zillow.com')
+    inp = wait.until(EC.presence_of_element_located((By.XPATH, '//div[@data-testid="search-bar-container"]//input')))
+
+    LOGGER.debug('applying the search')
+    if (city and state):
+        inp.send_keys(f'{city}, {state}')
+    else:
+        inp.send_keys(str(zip))
+    time.sleep(1)
+    inp.send_keys(Keys.ENTER)
+    time.sleep(1)
+
+    # potentially loads a modal...
+    try:
+        # TODO: rent as well...
+        for_sale_button = driver.find_element(By.XPATH, '//div[@aria-label="Choose listing type"]//button')
+        LOGGER.debug('for sale/rent modal found')
+        for_sale_button.click()
+    except NoSuchElementException:
+        pass
+
+    # new page loads up
+    # wait for the grid
+    LOGGER.debug('attempting to retrieve query dict')
+    wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="search-page-list-container"]')))
+
+    # the complex params pop up after switching sort mechanism so lets do that
+    sort_button = driver.find_element(By.XPATH, '//button[@data-test="sort-popover-dropdown-button"]')
+    sort_button.click()  # new buttons populate
+    time.sleep(0.2)
+    newest_button = driver.find_element(By.XPATH, '//button[@data-value="days"]')
+    newest_button.click()
+    time.sleep(0.2)
+
+    # new page loads
+    # wait for the grid
+    LOGGER.debug('modifying query dict')
+    wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="search-page-list-container"]')))
+
+    # get and modify the params dict
+    url = unquote_plus(driver.current_url)
+    parsed = urlparse(url)
+
+    query, dick_params = parsed.query.split('=')
+    data = json.loads(dick_params)
+    if 'price' not in data['filterState'] and (price_max or price_min):
+        data['filterState']['price'] = dict(min=0, max=0)
+
+    # apply the filter params
+    data['filterState']['price']['max'] = price_max or 10000000
+    data['filterState']['price']['min'] = price_min or 0
+    data['filterState']['pnd'] = {'value': show_contingent}
+
+    minified = re.sub(r'(\s{2,}|\n)', '', json.dumps(data))
+    minified = re.sub(r'([\:,]) ', r'\g<1>', minified)
+
+    search_url = f'{parsed.scheme}://{parsed.hostname}{parsed.path}?{query}={minified}'
+    LOGGER.debug('modified the search url from %s to %s', url, search_url)
+    driver.get(search_url)
+
+    try:
+        pagination = driver.find_element(By.XPATH, '//div[@data-testid="search-pagination"]')
+        pages = re.findall(r'\d+', pagination.text)
+        max_page = int(pages[-1])
+    except NoSuchElementException:
+        max_page = 1
+    LOGGER.info('%d pages to search through!', max_page)
+    page = 1
+
+    urls = zillow_com_search_page_visit(driver, wait)  # visit the current page
+    LOGGER.info('scraped page %d, %d urls discovered so far', page, len(urls))
+
+    while True:
+        try:
+            next_arrow = driver.find_element(By.XPATH, '//div[@data-testid="search-pagination"]//a[@rel="next"]')
+            aria_disabled = next_arrow.get_attribute('aria-disabled')
+            if aria_disabled and aria_disabled == 'true':
+                break
+        except NoSuchElementException:
+            break
+        page += 1
+
+        LOGGER.info('scrapping %d / %d, %d urls discovered so far', page, max_page, len(urls))
+        next_arrow.click()
+        new_urls = zillow_com_search_page_visit(driver, wait)
+        urls.extend(new_urls)
+        time.sleep(random.randint(0, int(1000 * sleep_for)) / 1000)
 
     LOGGER.info('found %d urls', len(urls))
     return urls
@@ -594,15 +727,15 @@ class Arguments:
         return arguments
 
 
-def url_file(input_filepath, output_dirpath, commute=''):
-    # type: (str, str, str) -> None
+def url_file(input_filepath, output_dirpath, commute='', driver=None, wait=None):
+    # type: (str, str, str, Optional[WebDriver], Optional[WebDriverWait]) -> None
     url_text = read_text_file(input_filepath)
     urls = [url.strip() for url in url_text.splitlines() if url.strip() and not url.strip().startswith('#')]
     filename = os.path.splitext(os.path.basename(input_filepath))[1]
 
     # NOTE: use_subprocess=False in python interactive mode
-    driver = uc.Chrome(headless=False, use_subprocess=True)
-    wait = WebDriverWait(driver, 5)
+    driver = driver or uc.Chrome(headless=False, use_subprocess=True)
+    wait = wait or WebDriverWait(driver, 5)
 
     cache_dirpath = abspath(output_dirpath)
     os.makedirs(cache_dirpath, exist_ok=True)
@@ -617,23 +750,21 @@ def url_file(input_filepath, output_dirpath, commute=''):
     LOGGER.info('url processing')
     properties = []
     for u, url in enumerate(urls):
-        LOGGER.info('%d / %d - %s', u + 1, len(urls), url)
-
         if 'rentals' in url:
-            LOGGER.error('NotImplementedError for a url like %s!', url)
+            LOGGER.error('%d / %d - NotImplementedError for a url like %s!', u + 1, len(urls), url)
             continue
 
         parsed = urllib.parse.urlparse(url)
-        cache_filename = f'{urls}'
+        cache_filename = f'{u}'
         hostname = str(parsed.hostname) if parsed.hostname else ''
         if hostname:
             cache_filename = parsed.path.split('/')[-1]
         cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
         if is_file(cached_filepath):
-            LOGGER.info('analyzing %d - %s from file', urls, url)
+            LOGGER.info('%d / %d - from file:    %s', u + 1, len(urls), url)
             text = read_text_file(cached_filepath)
         else:
-            LOGGER.info('analyzing %d - %s from browser', urls, url)
+            LOGGER.info('%d / %d - from browser: %s', u + 1, len(urls), url)
             if 'realtor.com' in hostname:
                 text = realtor_com_to_text(driver, wait, url)
             elif 'zillow.com' in hostname:
@@ -678,11 +809,12 @@ def get_url(driver):
         return None
 
 
-def browse(output_dirpath, commute=''):
-    # type: (str, str) -> None
+def browse(output_dirpath, commute='', driver=None, wait=None):
+    # type: (str, str, Optional[WebDriver], Optional[WebDriverWait]) -> None
     # NOTE: use_subprocess=False in python interactive mode
-    driver = uc.Chrome(headless=False, use_subprocess=True)
-    wait = WebDriverWait(driver, 10)
+
+    driver = driver or uc.Chrome(headless=False, use_subprocess=True)
+    wait = wait or WebDriverWait(driver, 20)  # in case you need to resolve a captcha or something
 
     cache_dirpath = abspath(output_dirpath)
     os.makedirs(cache_dirpath, exist_ok=True)
@@ -692,7 +824,7 @@ def browse(output_dirpath, commute=''):
     LOGGER.info('30 Year mortgage rate of %0.2f%%', mortgage_rate_30)
 
     properties = []
-    urls = 0
+    u = 0
     commute_dealt_with = False
     url = ''
     driver_url = get_url(driver)
@@ -712,18 +844,18 @@ def browse(output_dirpath, commute=''):
             if not parsed.path:
                 continue
 
-            urls += 1
+            u += 1
 
-            cache_filename = f'{urls}'
+            cache_filename = f'{u}'
             hostname = str(parsed.hostname) if parsed.hostname else ''
             if hostname:
                 cache_filename = parsed.path.split('/')[-1]
             cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
             if is_file(cached_filepath):
-                LOGGER.debug('analyzing %d - %s from file', urls, url)
+                LOGGER.info('%d - %s from file', u + 1, url)
                 text = read_text_file(cached_filepath)
             else:
-                LOGGER.debug('analyzing %d - %s from browser', urls, url)
+                LOGGER.info('%d - %s from browser', u + 1, url)
                 if 'realtor.com' in hostname and 'realestateandhomes-detail' in parsed.path:
                     if commute and not commute_dealt_with:
                         realtor_com_populate_commute(driver, wait, url, commute)
@@ -770,31 +902,27 @@ def browse(output_dirpath, commute=''):
         LOGGER.info('wrote "%s"', output_filepath_json)
 
 
-def search(output_dirpath, city=None, state=None, zip=None, price_max=None, price_min=None, show_contingent=False, commute=''):
-    # type: (str, Optional[str], Optional[str], Optional[int], Optional[int | float], Optional[int | float], bool, str) -> None
+def search(output_dirpath, city=None, state=None, zip=None, price_max=None, price_min=None, show_contingent=False, commute='', driver=None, wait=None):
+    # type: (str, Optional[str], Optional[str], Optional[int], Optional[int | float], Optional[int | float], bool, str, Optional[WebDriver], Optional[WebDriverWait]) -> None
 
     # NOTE: use_subprocess=False in python interactive mode
-    driver = uc.Chrome(headless=False, use_subprocess=True)
-    wait = WebDriverWait(driver, 10)
+    driver = driver or uc.Chrome(headless=False, use_subprocess=True)
+    wait = wait or WebDriverWait(driver, 20)  # in case you need to resolve a captcha or something
 
     cache_dirpath = abspath(output_dirpath)
     os.makedirs(cache_dirpath, exist_ok=True)
 
-    realtor_com_urls = realtor_com_search(
-        driver,
-        wait,
-        city=city,
-        state=state,
-        zip=zip,
-        price_max=price_max,
-        price_min=price_min,
-        show_contingent=show_contingent,
-    )
-    urls = realtor_com_urls
+    search_args = (driver, wait)
+    search_kwargs = dict(city=city, state=state, zip=zip, price_max=price_max, price_min=price_min, show_contingent=show_contingent)
+    zillow_com_urls = zillow_com_search(*search_args, **search_kwargs)
+    realtor_com_urls = realtor_com_search(*search_args, **search_kwargs)
+    urls = realtor_com_urls + zillow_com_urls
     if urls:
         output_filepath_urls = abspath(output_dirpath, f'{NOW}.urls')
         write_text_file(output_filepath_urls, '\n'.join(urls))
         LOGGER.info('wrote "%s"', output_filepath_urls)
+
+        url_file(output_filepath_urls, output_dirpath, commute=commute, driver=driver, wait=wait)
 
 
 def main():

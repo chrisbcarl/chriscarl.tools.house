@@ -172,6 +172,17 @@ class TestCase(UnitTest):
         ]
         self.assert_null_hypothesis(variables, controls)
 
+    def test_case_6_search(self):
+        urls = lib.realtor_com_search(
+            self.driver,
+            self.wait,
+            city='San Jose',
+            state='CA',
+            price_max=300000,  # NOTE: this could be genuinely too low depending on location
+        )
+        LOGGER.info("%s", json.dumps(urls, indent=2))
+        self.assertTrue(urls)
+
 
 if __name__ == '__main__':
     tc = TestCase()
@@ -183,5 +194,6 @@ if __name__ == '__main__':
     tc.test_case_3_realtor_com_populate_commute()
     tc.test_case_4_zillow_com_text_to_property()
     tc.test_case_5_zillow_com_to_text()
+    tc.test_case_6_search()
 
     tc.tearDown()
