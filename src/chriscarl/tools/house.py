@@ -8,7 +8,11 @@ Description:
 
 tools.house is a tool which you can use to deal with housing searches a bit better.
 
+TODO:
+    - rentals
+
 Updates:
+    2026-01-14 03:08  - tools.house - added search (at least for realtor.com)!
     2026-01-13 06:22  - tools.house - added zillow, XPATH has been a revolution, Keys.ENTER the same way
     2026-01-13 21:07  - tools.house - added the browse mode which has been really enjoyable
     2026-01-12 01:27  - tools.house - it works!
@@ -27,6 +31,7 @@ import time
 import json
 import csv
 import re
+from urllib.parse import urlparse, urljoin, unquote_plus
 from typing import List, Generator, Optional, Dict, Tuple
 from dataclasses import dataclass, field, asdict
 from argparse import ArgumentParser
@@ -339,7 +344,9 @@ def zillow_com_to_text(driver, wait, url, sleep_for=3, captcha_timeout=25):
     if driver.current_url != url:
         driver.get(url)
 
-    wait.until(EC.presence_of_element_located((By.XPATH, f'//section[@data-testid="contact-form"]')))
+    # wait.until(EC.presence_of_element_located((By.XPATH, f'//section[@data-testid="contact-form"]')))
+    # wait.until(EC.presence_of_element_located((By.XPATH, '//input[@id="hidden-reg-details"]')))
+    # wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="bdp-building-location"]')))
     div = wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'layout-static-column-container')))
 
     try:
@@ -356,7 +363,10 @@ def zillow_com_to_text(driver, wait, url, sleep_for=3, captcha_timeout=25):
     except NoSuchElementException:
         pass
 
-    input = driver.find_element(By.XPATH, f'//section[@data-testid="contact-form"]//input')
+    # input = driver.find_element(By.XPATH, f'//section[@data-testid="contact-form"]//input')
+    # input = driver.find_element(By.XPATH, '//input[@id="hidden-reg-details"]')
+    # input = driver.find_element(By.XPATH, '//div[@id="bdp-building-location"]')
+    input = driver.find_element(By.XPATH, '//input[@aria-label="Search" and @role="combobox"]')
     for _ in range(5):
         input.send_keys(Keys.PAGE_DOWN)
         time.sleep(0.2)
@@ -401,6 +411,113 @@ def zillow_com_to_text(driver, wait, url, sleep_for=3, captcha_timeout=25):
     return '\n'.join(text)
 
 
+def realtor_com_search_page_visit(driver, wait, url):
+    # type: (WebDriver, WebDriverWait, str) -> List[str]
+    # url = 'https://www.realtor.com/realestateandhomes-search/San-Jose_CA'
+    if driver.current_url != url:
+        driver.get(url)
+    LOGGER.debug('scrapping page %s', url)
+    wait.until(EC.presence_of_element_located((By.XPATH, '//div[@data-testid="card-content"]//a')))
+    search = driver.find_element(By.XPATH, '//input[@type="text"]')  # still exists
+    while True:
+        try:
+            # no matches found
+            driver.find_element(By.XPATH, '//p[contains(normalize-space(.), "nd of matching")]')
+            break
+        except NoSuchElementException:
+            pass
+
+        try:
+            # paginator found
+            driver.find_element(By.XPATH, '//div[@aria-label="pagination"]')
+            break
+        except NoSuchElementException:
+            search.send_keys(Keys.PAGE_DOWN)
+            time.sleep(0.1)
+
+    urls = []
+    for anchor in driver.find_elements(By.XPATH, '//div[@data-testid="card-content"]//a'):
+        href = anchor.get_attribute('href')
+        if not href:
+            continue
+        else:
+            urls.append(urljoin(url, href))
+
+    return urls
+
+
+def realtor_com_search(
+    driver,
+    wait,
+    city=None,
+    state=None,
+    zip=None,
+    price_max=None,
+    price_min=None,
+    show_contingent=False,
+    sleep_for=3,
+):
+    # type: (WebDriver, WebDriverWait, Optional[str], Optional[str], Optional[int], Optional[int|float], Optional[int|float], bool, int|float) -> List[str]
+    if not ((city and state) or (zip)):
+        raise ValueError('must provide either city and state OR zip!')
+
+    # searching manually:
+    # url = 'https://www.realtor.com'
+    # driver.get(url)
+    # search = wait.until(EC.presence_of_element_located((By.XPATH, '//input[@type="text"]')))
+    # # search = driver.find_element(By.XPATH, '//input[@type="text"]')
+    # if (city and state):
+    #     # search.send_keys('San Jose, CA')
+    #     search.send_keys(f'{city}, {state}')
+    # else:
+    #     search.send_keys(f'{zip}')
+    # time.sleep(1)
+    # search.send_keys(Keys.DOWN)
+    # time.sleep(0.1)
+    # search.send_keys(Keys.ENTER)
+
+    # searching via heuristic, tokens are done via route additions rather than params... weird AF
+    tokens = ['https://www.realtor.com/realestateandhomes-search']
+    if (city and state):
+        # San-Jose_CA
+        tokens.append(f'{"-".join(city.split())}_{state}')
+    else:
+        # 10001
+        tokens.append(f'{zip}')
+    if price_max is not None or price_min is not None:
+        # price-na-400000
+        tokens.append(f'price-{"na" if price_min is None else int(price_min)}-{"na" if price_max is None else int(price_max)}')
+    if not show_contingent:
+        tokens.append('pnd-ctg-hide')
+
+    # TODO: property types: everything after type- is valid and csv... weird AF
+    # type-multi-family-home,townhome,condo,mfd-mobile-home,land,farms-ranches,single-family-home
+    # https://www.realtor.com/realestateandhomes-search/San-Jose_CA/pnd-ctg-hide/price-na-400000
+    search_url = f'{"/".join(tokens)}/'
+    LOGGER.info('%s', search_url)
+    urls = realtor_com_search_page_visit(driver, wait, search_url)  # page 1
+
+    # see if htere is a page 2
+    pages = driver.find_element(By.XPATH, '//div[@aria-label="pagination"]')
+    max_page_mo = re.search(r'(\d+)\nnext', pages.text, flags=re.MULTILINE | re.IGNORECASE)
+    if not max_page_mo:
+        raise RuntimeError('could not find the max page for the search!')
+    max_page = int(max_page_mo.groups()[0])
+    if max_page > 1:
+        base = urlparse(driver.current_url)
+        base_url = f'{base.scheme}://{base.hostname}{base.path}/'
+        for page in range(2, max_page + 1):
+            LOGGER.info('scrapping %d / %d, %d urls discovered so far', page, max_page, len(urls))
+            # https://www.realtor.com/realestateandhomes-search/San-Jose_CA/pg-2
+            # https://www.realtor.com/realestateandhomes-search/San-Jose_CA/pg-3...
+            search_url_page = urljoin(base_url, f'pg-{page}')
+            urls.extend(realtor_com_search_page_visit(driver, wait, search_url_page))
+            time.sleep(random.randint(0, int(1000 * sleep_for)) / 1000)
+
+    LOGGER.info('found %d urls', len(urls))
+    return urls
+
+
 @dataclass
 class Arguments:
     '''
@@ -410,6 +527,14 @@ class Arguments:
     input_filepath: str = ''
     commute: str = ''
     output_dirpath: str = DEFAULT_OUTPUT_DIRPATH
+
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[int] = None
+    price_max: Optional[int | float] = None
+    price_min: Optional[int | float] = None
+    show_contingent: bool = False
+
     debug: bool = False
     log_level: str = 'INFO'
     log_filepath: str = DEFAULT_LOG_FILEPATH
@@ -438,9 +563,22 @@ class Arguments:
         Arguments.add_common_arguments(browse)
         browse.set_defaults(mode='browse')
 
+        search = modes.add_parser('search', help='run a search query on all websites and collate')
+        Arguments.add_common_arguments(search)
+        search.set_defaults(mode='search')
+        search.add_argument('--city', type=str, help='full name of a city like "San Jose"')
+        search.add_argument('--state', type=str, help='acronym state like "CA"')
+        search.add_argument('--zip', type=int, help='5-digit ZIP code like 10001')
+        search.add_argument('--price-max', type=int, help='some maximum price?')
+        search.add_argument('--price-min', type=int, help='some minimum price?')
+        search.add_argument('--show-contingent', action='store_true', help='show pending or contingent?')
+
         return parser
 
     def process(self):
+        if self.mode == 'search':
+            if not ((self.city and self.state) or (self.zip)):
+                raise RuntimeError('must provide either --city + --state OR --zip!')
         make_dirpath(self.output_dirpath)
         if self.debug:
             self.log_level = 'DEBUG'
@@ -456,7 +594,7 @@ class Arguments:
         return arguments
 
 
-def url_link(input_filepath, output_dirpath, commute=''):
+def url_file(input_filepath, output_dirpath, commute=''):
     # type: (str, str, str) -> None
     url_text = read_text_file(input_filepath)
     urls = [url.strip() for url in url_text.splitlines() if url.strip() and not url.strip().startswith('#')]
@@ -480,6 +618,10 @@ def url_link(input_filepath, output_dirpath, commute=''):
     properties = []
     for u, url in enumerate(urls):
         LOGGER.info('%d / %d - %s', u + 1, len(urls), url)
+
+        if 'rentals' in url:
+            LOGGER.error('NotImplementedError for a url like %s!', url)
+            continue
 
         parsed = urllib.parse.urlparse(url)
         cache_filename = f'{urls}'
@@ -530,7 +672,7 @@ def url_link(input_filepath, output_dirpath, commute=''):
 def get_url(driver):
     # type: (WebDriver) -> str|None
     try:
-        return driver.current_url.strip()
+        return urllib.parse.unquote_plus(driver.current_url.strip())
     except Exception:
         LOGGER.warning('driver is likely dead')
         return None
@@ -540,7 +682,7 @@ def browse(output_dirpath, commute=''):
     # type: (str, str) -> None
     # NOTE: use_subprocess=False in python interactive mode
     driver = uc.Chrome(headless=False, use_subprocess=True)
-    wait = WebDriverWait(driver, 5)
+    wait = WebDriverWait(driver, 10)
 
     cache_dirpath = abspath(output_dirpath)
     os.makedirs(cache_dirpath, exist_ok=True)
@@ -562,43 +704,44 @@ def browse(output_dirpath, commute=''):
                 continue
 
             url = driver_url
+            if 'rentals' in url:
+                LOGGER.error('NotImplementedError for a url like %s!', url)
+                continue
 
-            if 'realtor.com/realestateandhomes-detail' in driver_url:
-                if commute and not commute_dealt_with:
-                    realtor_com_populate_commute(driver, wait, url, commute)
-                    commute_dealt_with = True
-                time.sleep(1)
+            parsed = urllib.parse.urlparse(url)
+            if not parsed.path:
+                continue
 
-                urls += 1
+            urls += 1
 
-                parsed = urllib.parse.urlparse(url)
-                cache_filename = f'{urls}'
-                hostname = str(parsed.hostname) if parsed.hostname else ''
-                if hostname:
-                    cache_filename = parsed.path.split('/')[-1]
-                cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
-                if is_file(cached_filepath):
-                    LOGGER.info('analyzing %d - %s from file', urls, url)
-                    text = read_text_file(cached_filepath)
+            cache_filename = f'{urls}'
+            hostname = str(parsed.hostname) if parsed.hostname else ''
+            if hostname:
+                cache_filename = parsed.path.split('/')[-1]
+            cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
+            if is_file(cached_filepath):
+                LOGGER.debug('analyzing %d - %s from file', urls, url)
+                text = read_text_file(cached_filepath)
+            else:
+                LOGGER.debug('analyzing %d - %s from browser', urls, url)
+                if 'realtor.com' in hostname and 'realestateandhomes-detail' in parsed.path:
+                    if commute and not commute_dealt_with:
+                        realtor_com_populate_commute(driver, wait, url, commute)
+                        commute_dealt_with = True
+                    text = realtor_com_to_text(driver, wait, url)
+                elif 'zillow.com' in hostname and 'homedetails' in parsed.path:
+                    text = zillow_com_to_text(driver, wait, url)
                 else:
-                    LOGGER.info('analyzing %d - %s from browser', urls, url)
-                    if 'realtor.com' in hostname:
-                        text = realtor_com_to_text(driver, wait, url)
-                    elif 'zillow.com' in hostname:
-                        text = zillow_com_to_text(driver, wait, url)
-                    else:
-                        raise NotImplementedError(f'not implemented for {hostname!r}!')
-                    write_text_file(cached_filepath, f'{url}\n{text}')
+                    LOGGER.debug('not implemented for hostname %r', hostname)
+                    continue
+                    # raise NotImplementedError(f'not implemented for {hostname!r}!')
+                write_text_file(cached_filepath, f'{url}\n{text}')
 
                 prop = Property.parse_text(text, hostname=hostname)
                 prop.link = url
                 prop.calculate(mortgage_rate_15, mortgage_rate_20, mortgage_rate_30)
                 LOGGER.info('discovered property: %s', prop)
                 properties.append(prop)
-            elif 'zillow.com/homedetails' in driver_url:
-                print('plz')
-                globals().update(locals())
-                sys.exit(1)
 
             driver_url = get_url(driver)
     except KeyboardInterrupt:
@@ -627,6 +770,33 @@ def browse(output_dirpath, commute=''):
         LOGGER.info('wrote "%s"', output_filepath_json)
 
 
+def search(output_dirpath, city=None, state=None, zip=None, price_max=None, price_min=None, show_contingent=False, commute=''):
+    # type: (str, Optional[str], Optional[str], Optional[int], Optional[int | float], Optional[int | float], bool, str) -> None
+
+    # NOTE: use_subprocess=False in python interactive mode
+    driver = uc.Chrome(headless=False, use_subprocess=True)
+    wait = WebDriverWait(driver, 10)
+
+    cache_dirpath = abspath(output_dirpath)
+    os.makedirs(cache_dirpath, exist_ok=True)
+
+    realtor_com_urls = realtor_com_search(
+        driver,
+        wait,
+        city=city,
+        state=state,
+        zip=zip,
+        price_max=price_max,
+        price_min=price_min,
+        show_contingent=show_contingent,
+    )
+    urls = realtor_com_urls
+    if urls:
+        output_filepath_urls = abspath(output_dirpath, f'{NOW}.urls')
+        write_text_file(output_filepath_urls, '\n'.join(urls))
+        LOGGER.info('wrote "%s"', output_filepath_urls)
+
+
 def main():
     # type: () -> int
     parser = Arguments.argparser()
@@ -635,10 +805,21 @@ def main():
         sys.exit(1)
 
     args = Arguments.parse(parser=parser)
-    if args.mode == 'link-url':
-        url_link(args.input_filepath, args.output_dirpath, commute=args.commute)
+    if args.mode == 'url-file':
+        url_file(args.input_filepath, args.output_dirpath, commute=args.commute)
     elif args.mode == 'browse':
         browse(args.output_dirpath, commute=args.commute)
+    elif args.mode == 'search':
+        search(
+            args.output_dirpath,
+            city=args.city,
+            state=args.state,
+            zip=args.zip,
+            price_max=args.price_max,
+            price_min=args.price_min,
+            show_contingent=args.show_contingent,
+            commute=args.commute,
+        )
 
     LOGGER.info('done')
     return 0
