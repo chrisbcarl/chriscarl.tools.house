@@ -38,6 +38,7 @@ house = 'chriscarl.tools.house:main'
 
 [tool.poetry.dependencies]
 chriscarl = {develop = true, path="../chriscarl.python"}  # version = ">0.0.0"
+chriscarl-python-web = {path = "../chriscarl.python.web", develop = true}
 undetected-chromedriver = "^3.5.5"
 
 

@@ -7,8 +7,13 @@ poetry install
 
 house url-file files/house-links-2026-01.txt --commute "1 Washington Sq, San Jose, CA, 95112"
 
+house url-file /temp/tools.house/2026-01-20.urls --commute "1 Washington Sq, San Jose, CA, 95112"
+
 house browse --commute "1 Washington Sq, San Jose, CA, 95112"
-house search --city "San Jose" --state "CA" --price-max 400000 --log-level DEBUG
+house search --city "San Jose" --state "CA" --price-max 400000  --commute "1 Washington Sq, San Jose, CA, 95112" --log-level DEBUG
+
+
+house search --city "San Jose" --state "CA" --price-max 500000  --commute "1 Washington Sq, San Jose, CA, 95112" --log-level DEBUG
 ```
 
 

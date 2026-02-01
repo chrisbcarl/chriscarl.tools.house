@@ -56,8 +56,8 @@ class TestCase(UnitTest):
         self.realtor_com_url = 'https://www.realtor.com/realestateandhomes-detail/7931-Caledonia-Dr_San-Jose_CA_95135_M19351-48449'
         self.zillow_com_url = 'https://www.zillow.com/homedetails/2151-Oakland-Rd-SPC-297-San-Jose-CA-95131/2096960515_zpid/'
         self.commute_address = '1 Washington Sq, San Jose, CA, 95112'
-        self.realtor_com_text = read_text_file(abspath(constants.TEST_COLLATERAL_DIRPATH, 'realtor.com.txt'))
-        self.zillow_com_text = read_text_file(abspath(constants.TEST_COLLATERAL_DIRPATH, 'zillow.com.txt'))
+        self.realtor_com_text = read_text_file(abspath(constants.TESTS_COLLATERAL_DIRPATH, 'realtor.com.txt'))
+        self.zillow_com_text = read_text_file(abspath(constants.TESTS_COLLATERAL_DIRPATH, 'zillow.com.txt'))
         return super().setUp()
 
     def tearDown(self):
@@ -124,7 +124,7 @@ class TestCase(UnitTest):
 
     def test_case_3_realtor_com_populate_commute(self):
         variables = [
-            (lib.realtor_com_populate_commute, (self.driver, self.wait, self.realtor_com_url, self.commute_address)),
+            (lib.realtor_com_populate_commute, (self.driver, self.realtor_com_url, self.commute_address)),
         ]
         controls = [
             True,
@@ -188,12 +188,13 @@ if __name__ == '__main__':
     tc = TestCase()
     tc.setUp()
 
-    tc.test_case_0_mortgage()
-    tc.test_case_1_realtor_com_text_to_property()
-    tc.test_case_2_realtor_com_to_text()
-    tc.test_case_3_realtor_com_populate_commute()
-    tc.test_case_4_zillow_com_text_to_property()
-    tc.test_case_5_zillow_com_to_text()
-    tc.test_case_6_search()
-
-    tc.tearDown()
+    try:
+        # tc.test_case_0_mortgage()
+        # tc.test_case_1_realtor_com_text_to_property()
+        # tc.test_case_2_realtor_com_to_text()
+        tc.test_case_3_realtor_com_populate_commute()
+        # tc.test_case_4_zillow_com_text_to_property()
+        # tc.test_case_5_zillow_com_to_text()
+        # tc.test_case_6_search()
+    finally:
+        tc.tearDown()

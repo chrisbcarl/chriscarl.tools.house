@@ -12,6 +12,7 @@ TODO:
     - rentals
 
 Updates:
+    2026-01-20 06:22  - tools.house - zillow captcha and realtor commute optimized, things are smoother now
     2026-01-14 06:22  - tools.house - added search with realtor/zillow, does not parse url correclty wll have to fix
     2026-01-13 06:22  - tools.house - added zillow, XPATH has been a revolution, Keys.ENTER the same way
     2026-01-13 21:07  - tools.house - added the browse mode which has been really enjoyable
@@ -43,7 +44,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, StaleElementReferenceException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, StaleElementReferenceException, ElementNotInteractableException
 import undetected_chromedriver as uc
 
 # project imports
@@ -53,6 +54,7 @@ from chriscarl.core.lib.stdlib.argparse import ArgparseNiceFormat
 from chriscarl.core.lib.stdlib.os import abspath, make_dirpath, is_file
 from chriscarl.core.lib.stdlib.io import read_text_file, write_text_file
 from chriscarl.core.lib.stdlib.urllib import download
+from chriscarl.core.lib.third.selenium import save_page
 
 SCRIPT_RELPATH = 'chriscarl/tools/house2.py'
 if not hasattr(sys, '_MEIPASS'):
@@ -139,7 +141,7 @@ class Property():
                 ('bed', r'([\d]+)\n\s*bed', re.MULTILINE),
                 ('bath', r'([\d]+)\n\s*bath', re.MULTILINE),
                 ('hoa', r'HOA fees\n\$?([\d\.,]{3,})', re.MULTILINE),
-                ('land_lease', r'(?:land lease|rent)[^\d]+\$?([\d\., ]{3,})[^\d]', re.IGNORECASE | re.MULTILINE),
+                ('land_lease', r'(?:lease |land lease|rent)[^\d]+\$?([\d\., ]{3,})[^\d]', re.IGNORECASE | re.MULTILINE),
                 ('area', r'([\d\.,]{3,}) (square foot lot|acre lot|square feet)', re.MULTILINE),
                 ('area_unit', r'[\d\.,]{3,} (square foot lot|acre lot|square feet)', re.MULTILINE),
                 ('year', r'Year built\n(.+)', re.MULTILINE),
@@ -247,51 +249,50 @@ def download_mortgage_rates(dirpath=TEMP_DIRPATH):
 DEFAULT_PROPERTY = Property()
 
 
-def realtor_com_populate_commute(driver, wait, url, commute_address):
-    # type: (WebDriver, WebDriverWait, str, str) -> bool
+def realtor_com_populate_commute(driver, url, commute_address):
+    # type: (WebDriver, str, str) -> bool
     LOGGER.debug('looking for the commute button')
     if driver.current_url != url:
         driver.get(url)
 
-    wait.until(EC.presence_of_element_located((By.ID, 'Property details')))
-    the_button = None
-    for button in driver.find_elements(By.TAG_NAME, 'button'):
-        attrib = button.get_attribute('data-testid')
-        if attrib == 'ldp-commute-time-btn' and isinstance(button.text, str):
-            if 'add a commute' in button.text.lower():
-                the_button = button
-                break
+    wait = WebDriverWait(driver, timeout=5)
 
-    if the_button:
-        LOGGER.debug('inputting the commute %r', commute_address)
-        the_button.click()
-        modal = wait.until(EC.presence_of_element_located((By.ID, 'ldp-commute-time-modal')))
-        input = modal.find_element(By.ID, 'searchbox-input')
-        for token in commute_address.split(',')[:-1]:
-            for char in token:
-                input.send_keys(char)
-                # time.sleep(0.1) # DO NOT SLEEP, the query box will come up and get confused if you do
-            input.send_keys(',')
+    # body = wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+    # body.send_keys(Keys.PAGE_DOWN)
 
-        LOGGER.debug('sending keys down and enter')
-        time.sleep(3)
-        input.send_keys(Keys.DOWN)
-        time.sleep(0.5)
-        input.send_keys(Keys.ENTER)
+    # wait.until(EC.presence_of_element_located((By.ID, 'Property details')))
+    # driver.find_element(
+    the_button = wait.until(EC.presence_of_element_located((By.XPATH, '//button[@data-testid="ldp-commute-time-btn"]')))
 
-        LOGGER.debug('looking for the confirm button')
-        time.sleep(3)
-        the_button = None
-        for button in driver.find_elements(By.TAG_NAME, 'button'):
-            attrib = button.get_attribute('data-testid')
-            if attrib == 'update-commute-button' and isinstance(button.text, str):
-                if 'add commute' in button.text.lower():
-                    the_button = button
-                    break
-        if the_button:
-            the_button.click()
+    LOGGER.debug('inputting the commute %r', commute_address)
+    the_button.click()
+    modal = wait.until(EC.presence_of_element_located((By.ID, 'ldp-commute-time-modal')))
+    input = modal.find_element(By.ID, 'searchbox-input')
+    input.send_keys(','.join(commute_address.split(',')[:-1]))
+    wait.until(EC.presence_of_element_located((By.ID, 'downshift-1-menu')))
+    # print(save_page(driver))  # how i found out about these elements, they are dynamically written and written off DOM
+    item = wait.until(EC.presence_of_element_located((By.ID, 'downshift-1-item-0')))
 
-        time.sleep(5)
+    LOGGER.debug('sending keys down and enter')
+    item.click()
+    # input.send_keys(Keys.DOWN)
+    # time.sleep(1)
+    # input.send_keys(Keys.ENTER)
+
+    LOGGER.debug('confirming')
+    # a div will pop up, so locate the button after the div appears.
+    wait.until(EC.presence_of_element_located((By.XPATH, '//div[@class="commute-cost-container"]')))
+    the_button = modal.find_element(By.XPATH, '//button[@data-testid="update-commute-button"]')
+    the_button.click()
+
+    # time.sleep(5)
+    while True:
+        try:
+            modal.text  # just ping it, and it should eventually disappear
+            modal_button = modal.find_element(By.XPATH, '//button[@data-testid="close-button"]')
+            modal_button.click()
+        except (StaleElementReferenceException, ElementNotInteractableException):
+            break
 
     return True
 
@@ -318,7 +319,7 @@ def realtor_com_to_text(driver, wait, url, sleep_for=3):
     details = driver.find_element(By.ID, 'Property details')
     details_text = str(details.text)
     data_testids = [
-        'for-sale',
+        ('for-sale', 'foreclosure'),
         'ldp-agent-overview',
         'ldp-list-price',
         'ldp-home-facts',
@@ -326,14 +327,50 @@ def realtor_com_to_text(driver, wait, url, sleep_for=3):
         'ldp-commute-time',
     ]
     for data_testid in data_testids:
-        div = driver.find_element(By.XPATH, f'//*[@data-testid="{data_testid}"]')
-        text.append(div.text)
+        if isinstance(data_testid, str):
+            div = driver.find_element(By.XPATH, f'//*[@data-testid="{data_testid}"]')
+            text.append(div.text)
+        else:
+            found = False
+            for dt in data_testid:
+                try:
+                    div = driver.find_element(By.XPATH, f'//*[@data-testid="{dt}"]')
+                    text.append(div.text)
+                    found = True
+                    break
+                except NoSuchElementException:
+                    continue
+            if not found:
+                raise RuntimeError(f'{url} could not find any of the data-testid {data_testid!r}')
 
     # data['details'] = details_text
     text.append(details_text)
     time.sleep(random.randint(0, int(1000 * sleep_for)) / 1000)
 
     return '\n'.join(text)
+
+
+def zillow_captcha_detect_and_solve(driver, captcha_timeout=25):
+    # type: (WebDriver, int|float) -> bool
+    '''
+    returns whether the captcha was encountered or not
+    '''
+    try:
+        wait = WebDriverWait(driver, timeout=2.5)
+        wait.until(EC.presence_of_element_located((By.ID, 'px-captcha')))  # px-captcha-modal
+        LOGGER.warning('must solve captcha!')
+        now = time.time()
+        while driver.find_element(By.ID, 'px-captcha'):
+            LOGGER.warning('must solve captcha!')
+            time.sleep(1)
+            if time.time() - now > captcha_timeout:
+                raise RuntimeError('failed captcha timeout!')
+
+        return True
+    except (NoSuchElementException, TimeoutException):
+        pass
+
+    return False
 
 
 def zillow_com_to_text(driver, wait, url, sleep_for=3, captcha_timeout=25):
@@ -348,20 +385,10 @@ def zillow_com_to_text(driver, wait, url, sleep_for=3, captcha_timeout=25):
     # wait.until(EC.presence_of_element_located((By.XPATH, '//input[@id="hidden-reg-details"]')))
     # wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="bdp-building-location"]')))
     div = wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'layout-static-column-container')))
-
-    try:
-        if driver.find_element(By.ID, 'px-captcha-modal'):
-            LOGGER.warning('must solve captcha!')
-            now = time.time()
-            while driver.find_element(By.ID, 'px-captcha-modal'):
-                LOGGER.warning('must solve captcha!')
-                time.sleep(1)
-                if time.time() - now > captcha_timeout:
-                    raise RuntimeError('failed captcha timeout!')
-
-            div = driver.find_element(By.CLASS_NAME, 'layout-static-column-container')
-    except NoSuchElementException:
-        pass
+    captcha_encountered = zillow_captcha_detect_and_solve(driver, captcha_timeout=captcha_timeout)
+    if captcha_encountered:
+        driver.get(url)
+        div = wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'layout-static-column-container')))
 
     body = wait.until(EC.presence_of_element_located((By.XPATH, f'//body')))
     for _ in range(5):
@@ -544,6 +571,19 @@ def zillow_com_search_page_visit(driver, wait):
     return urls
 
 
+def zillow_com_home(driver, wait):
+    # type: (WebDriver, WebDriverWait) -> bool
+    driver.get('https://zillow.com')
+    while True:
+        # login button
+        wait.until(EC.presence_of_element_located((By.XPATH, '//a[@data-za-action="Sign in"]')))
+        url = driver.current_url
+        if '/homes' in url:  # sometimes it redirects you to /homes
+            driver.get('https://zillow.com')
+        else:
+            return True
+
+
 def zillow_com_search(
     driver,
     wait,
@@ -559,7 +599,8 @@ def zillow_com_search(
     if not ((city and state) or (zip)):
         raise ValueError('must provide either city and state OR zip!')
 
-    driver.get('https://zillow.com')
+    zillow_com_home(driver, wait)
+
     inp = wait.until(EC.presence_of_element_located((By.XPATH, '//div[@data-testid="search-bar-container"]//input')))
 
     LOGGER.debug('applying the search')
@@ -580,29 +621,44 @@ def zillow_com_search(
     except NoSuchElementException:
         pass
 
+    captcha_encountered = zillow_captcha_detect_and_solve(driver)
+    if captcha_encountered:
+        zillow_com_home(driver, wait)
+        driver.refresh()
+
     # new page loads up
     # wait for the grid
-    LOGGER.debug('attempting to retrieve query dict')
     wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="search-page-list-container"]')))
 
     # the complex params pop up after switching sort mechanism so lets do that
-    sort_button = driver.find_element(By.XPATH, '//button[@data-test="sort-popover-dropdown-button"]')
+    sort_button = wait.until(EC.presence_of_element_located((By.XPATH, '//button[@data-test="sort-popover-dropdown-button"]')))
     sort_button.click()  # new buttons populate
     time.sleep(0.2)
-    newest_button = driver.find_element(By.XPATH, '//button[@data-value="days"]')
+    newest_button = wait.until(EC.presence_of_element_located((By.XPATH, '//button[@data-value="days"]')))
     newest_button.click()
     time.sleep(0.2)
 
     # new page loads
     # wait for the grid
-    LOGGER.debug('modifying query dict')
     wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="search-page-list-container"]')))
 
-    # get and modify the params dict
-    url = unquote_plus(driver.current_url)
-    parsed = urlparse(url)
+    while True:
+        LOGGER.debug('attempting to retrieve query dict')
+        # get and modify the params dict
+        url = unquote_plus(driver.current_url)
+        parsed = urlparse(url)
 
-    query, dick_params = parsed.query.split('=')
+        if '=' not in parsed.query:
+            driver.refresh()
+        else:
+            break
+
+    LOGGER.debug('modifying query dict')
+    tokens = parsed.query.split('=')
+    if len(tokens) == 2:
+        query, dick_params = tokens
+    else:
+        query, dick_params = tokens[0], r'{}'
     data = json.loads(dick_params)
     if 'price' not in data['filterState'] and (price_max or price_min):
         data['filterState']['price'] = dict(min=0, max=0)
@@ -735,7 +791,7 @@ def url_file(input_filepath, output_dirpath, commute='', driver=None, wait=None)
 
     # NOTE: use_subprocess=False in python interactive mode
     driver = driver or uc.Chrome(headless=False, use_subprocess=True)
-    wait = wait or WebDriverWait(driver, 5)
+    wait = wait or WebDriverWait(driver, 20)  # for zillow
 
     cache_dirpath = abspath(output_dirpath)
     os.makedirs(cache_dirpath, exist_ok=True)
@@ -745,7 +801,10 @@ def url_file(input_filepath, output_dirpath, commute='', driver=None, wait=None)
     LOGGER.info('30 Year mortgage rate of %0.2f%%', mortgage_rate_30)
 
     if commute:
-        realtor_com_populate_commute(driver, wait, urls[-1], commute)
+        for url in urls:
+            if 'realtor.com' in url:
+                realtor_com_populate_commute(driver, url, commute)
+            break
 
     LOGGER.info('url processing')
     properties = []
@@ -759,7 +818,7 @@ def url_file(input_filepath, output_dirpath, commute='', driver=None, wait=None)
         hostname = str(parsed.hostname) if parsed.hostname else ''
         if hostname:
             cache_filename = parsed.path.split('/')[-1]
-        cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
+        cached_filepath = abspath(cache_dirpath, 'txt-cache', f'{cache_filename}.txt')
         if is_file(cached_filepath):
             LOGGER.info('%d / %d - from file:    %s', u + 1, len(urls), url)
             text = read_text_file(cached_filepath)
@@ -850,7 +909,7 @@ def browse(output_dirpath, commute='', driver=None, wait=None):
             hostname = str(parsed.hostname) if parsed.hostname else ''
             if hostname:
                 cache_filename = parsed.path.split('/')[-1]
-            cached_filepath = abspath(cache_dirpath, f'{cache_filename}.txt')
+            cached_filepath = abspath(cache_dirpath, 'txt-cache', f'{cache_filename}.txt')
             if is_file(cached_filepath):
                 LOGGER.info('%d - %s from file', u + 1, url)
                 text = read_text_file(cached_filepath)
@@ -858,7 +917,7 @@ def browse(output_dirpath, commute='', driver=None, wait=None):
                 LOGGER.info('%d - %s from browser', u + 1, url)
                 if 'realtor.com' in hostname and 'realestateandhomes-detail' in parsed.path:
                     if commute and not commute_dealt_with:
-                        realtor_com_populate_commute(driver, wait, url, commute)
+                        realtor_com_populate_commute(driver, url, commute)
                         commute_dealt_with = True
                     text = realtor_com_to_text(driver, wait, url)
                 elif 'zillow.com' in hostname and 'homedetails' in parsed.path:
